@@ -42,7 +42,7 @@ function LFGListingMixin:OnLoad()
 	self.viewState = LFGLISTING_VIEWSTATE_ACTIVITIES;
 
 	self:ClearUI();
-	self:LoadSoloRolesFromTalentGroups();
+	self:LoadSoloRolesOnStartup();
 	self:UpdateFrameView();
 end
 
@@ -409,14 +409,12 @@ end
 -------------------------------------------------------
 ----------Solo Role UI
 -------------------------------------------------------
-function LFGListingMixin:LoadSoloRolesFromTalentGroups()
-	for i=1,GetNumTalentGroups() do
-		for _,roleButton in ipairs(self.SoloRoleButtons.RoleButtons) do
-			if (GetTalentGroupRole(i) == roleButton.roleID) then
-				roleButton.CheckButton:SetChecked(true);
-			end
-		end
-	end
+function LFGListingMixin:LoadSoloRolesOnStartup()
+	local roles = C_LFGList.GetSavedRoles();
+	self.SoloRoleButtons.Tank.CheckButton:SetChecked(roles.tank);
+	self.SoloRoleButtons.Healer.CheckButton:SetChecked(roles.healer);
+	self.SoloRoleButtons.DPS.CheckButton:SetChecked(roles.dps);
+
 	self:SaveSoloRoles();
 end
 
@@ -761,10 +759,17 @@ function LFGListingActivityView_UpdateActivities(self, categoryID)
 		local lhs = lhsNode:GetData();
 		local rhs = rhsNode:GetData();
 
-		if (lhs.orderIndex ~= rhs.orderIndex) then return lhs.orderIndex > rhs.orderIndex;
-		elseif (lhs.maxLevel ~= rhs.maxLevel) then return lhs.maxLevel > rhs.maxLevel;
-		elseif (lhs.minLevel ~= rhs.minLevel) then return lhs.minLevel > rhs.minLevel;
-		else return strcmputf8i(lhs.name, rhs.name) < 0;
+		if (lhs.orderIndex ~= rhs.orderIndex) then
+			return lhs.orderIndex > rhs.orderIndex;
+		elseif (lhs.maxLevel ~= rhs.maxLevel) then
+			if (lhs.maxLevel == 0 or rhs.maxLevel == 0) then
+				return lhs.maxLevel == 0;
+			end
+			return lhs.maxLevel > rhs.maxLevel;
+		elseif (lhs.minLevel ~= rhs.minLevel) then
+			return lhs.minLevel > rhs.minLevel;
+		else
+			return strcmputf8i(lhs.name, rhs.name) < 0;
 		end
 	end
 	local function ActivityGroupSortComparator(lhsNode, rhsNode)
@@ -787,12 +792,13 @@ function LFGListingActivityView_UpdateActivities(self, categoryID)
 		for _, activityID in ipairs(activities) do
 			local activityInfo = C_LFGList.GetActivityInfoTable(activityID);
 			local name = activityInfo.shortName ~= "" and activityInfo.shortName or activityInfo.fullName;
+			local maxLevel = activityInfo.maxLevel ~= 0 and activityInfo.maxLevel or activityInfo.maxLevelSuggestion;
 			dataProvider:Insert({
 				buttonType = LFGLISTING_BUTTONTYPE_ACTIVITY,
 				activityID = activityID,
 				name = name,
 				minLevel = activityInfo.minLevel,
-				maxLevel = activityInfo.maxLevel,
+				maxLevel = maxLevel,
 				orderIndex = activityInfo.orderIndex,
 			});
 		end
@@ -816,13 +822,14 @@ function LFGListingActivityView_UpdateActivities(self, categoryID)
 			for _, activityID in ipairs(activities) do
 				local activityInfo = C_LFGList.GetActivityInfoTable(activityID);
 				local name = activityInfo.shortName ~= "" and activityInfo.shortName or activityInfo.fullName;
+				local maxLevel = activityInfo.maxLevel ~= 0 and activityInfo.maxLevel or activityInfo.maxLevelSuggestion;
 				 
 				groupTree:Insert({
 					buttonType = LFGLISTING_BUTTONTYPE_ACTIVITY,
 					activityID = activityID,
 					name = name,
 					minLevel = activityInfo.minLevel,
-					maxLevel = activityInfo.maxLevel,
+					maxLevel = maxLevel,
 					orderIndex = activityInfo.orderIndex
 				});
 
@@ -888,7 +895,13 @@ function LFGListingActivityView_InitActivityButton(button, elementData)
 	-- Name
 	button.NameButton.Name:SetWidth(0);
 	button.NameButton.Name:SetText(elementData.name);
-	button.NameButton.Name:SetFontObject(LFGActivityEntry);
+	if (elementData.maxLevel ~= 0 and elementData.maxLevel < UnitLevel("player")) then
+		button.NameButton.Name:SetFontObject(LFGActivityEntryTrivial);
+		button.Level:SetFontObject(LFGActivityEntryTrivial);
+	else
+		button.NameButton.Name:SetFontObject(LFGActivityEntry);
+		button.Level:SetFontObject(LFGActivityEntry);
+	end
 	button.NameButton:SetWidth(button.NameButton.Name:GetWidth());
 
 	-- Level
